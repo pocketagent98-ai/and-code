@@ -130,7 +130,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.yugahashimoto.andcode"
+        applicationId = "com.pocketagent.andcode"
         minSdk = 26
         targetSdk = 35
         versionCode = 66
@@ -180,7 +180,7 @@ android {
                 keyPassword = releaseKeyPassword
                 // Some third-party app store upload verifiers (e.g. APKPure) still read the
                 // signer certificate via the legacy JAR (v1) signing block. AGP omits v1 by
-                // default once minSdk >= 24, so it must be requested explicitly here.
+                // default once minNdk >= 24, so it must be requested explicitly here.
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
@@ -334,8 +334,7 @@ dependencies {
 // straight out of the resolved releaseRuntimeClasspath artifacts. AGP's resource merging keeps at
 // most one arbitrarily-chosen copy of META-INF/NOTICE(.txt) in the final APK (pickFirst
 // deduplication, not a per-artifact preservation guarantee), so the actual NOTICE text an
-// artifact ships has to be read from the dependency archive itself, not from the built APK.
-tasks.register("generateNoticeAggregate") {
+// artifact ships has has to be read from the dependency archive itself, not from the built APK,Štasks.register("generateNoticeAggregate") {
     doLast {
         val noticeEntryNames =
             listOf("META-INF/NOTICE", "META-INF/NOTICE.txt", "META-INF/NOTICE.md", "NOTICE", "NOTICE.txt")
