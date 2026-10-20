@@ -48,6 +48,36 @@ class AttachmentImporter(
         )
     }
 
+    /** Sanitized display name for [uri], used when the file is streamed into the workspace. */
+    fun displayName(uri: Uri): String =
+        sanitize(queryDisplayName(uri) ?: "attachment-${System.currentTimeMillis()}")
+
+    /**
+     * Streams [uri]'s bytes into `[workspaceDir]/.andcode-attachments` and returns the destination
+     * file, without ever holding the whole file in memory.
+     *
+     * Used for MIME types a provider rejects as a file part (APKs, zips, binaries): the file lands
+     * in the workspace so the agent can read it from disk. This avoids both the provider
+     * "file part media type ... functionality not supported" error and the OutOfMemoryError from
+     * base64-encoding a large file in RAM.
+     */
+    fun copyUriToWorkspace(
+        uri: Uri,
+        rawFilename: String,
+        workspaceDir: File,
+    ): File {
+        val directory =
+            File(workspaceDir, ATTACHMENT_DIRECTORY).apply {
+                check(mkdirs() || isDirectory) { "Cannot create attachment directory" }
+            }
+        val destination = uniqueDestination(directory, sanitize(rawFilename))
+        context.contentResolver.openInputStream(uri).use { input ->
+            requireNotNull(input) { "Cannot open attachment input stream" }
+            destination.outputStream().use { output -> input.copyTo(output) }
+        }
+        return destination
+    }
+
     /**
      * Writes [attachment]'s decoded bytes into `[workspaceDir]/.andcode-attachments` and returns
      * the destination file.
