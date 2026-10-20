@@ -54,12 +54,6 @@ jobs:
           AND_CODE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || 'andcode' }}
           GITHUB_CLIENT_ID: ${{ vars.AND_CODE_GITHUB_CLIENT_ID }}
         run: ./gradlew :app:assembleGithubRelease
-      - name: Upload signing keystore
-        uses: actions/upload-artifact@v4
-        with:
-          name: andcode-keystore
-          path: ${{ runner.temp }}/release.keystore
-          retention-days: 7
       - id: upload-apk
         uses: actions/upload-artifact@v4
         with:
