@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="attachment_needs_workspace">This file type cannot be sent to the model. Set up the on-device runtime or open a project first so the agent can read it from the workspace.</string>
+</resources>
