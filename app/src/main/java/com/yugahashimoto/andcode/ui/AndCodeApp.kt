@@ -511,59 +511,99 @@ fun AndCodeApp(
                     withContext(Dispatchers.IO) {
                         val importer = com.yugahashimoto.andcode.runtime.local.AttachmentImporter(context)
                         val runtimeWorkspaceRoot = java.io.File(context.filesDir, "runtime/workspace")
+                        val isLocalRuntime =
+                            selectedRuntime?.kind == com.yugahashimoto.andcode.runtime.BackendKind.LOCAL
                         // Only the on-device runtime mounts /workspace onto a local directory. A
                         // remote runtime may also spell its workspace /workspace, but there is no
                         // local mount to copy into, so its attachments are always sent as-is.
                         val workspaceDir =
-                            if (selectedRuntime?.kind == com.yugahashimoto.andcode.runtime.BackendKind.LOCAL) {
+                            if (isLocalRuntime) {
                                 com.yugahashimoto.andcode.runtime.local.AttachmentSupport.hostWorkspace(
-                                    chatState.sessionDirectory ?: chatState.selectedWorkspacePath,
+                                    // No project chosen yet? Use the workspace root so a big binary
+                                    // can still reach the agent instead of failing.
+                                    chatState.sessionDirectory
+                                        ?: chatState.selectedWorkspacePath
+                                        ?: "/workspace",
                                     runtimeWorkspaceRoot,
                                 )
                             } else {
                                 null
                             }
-                        importer.importAll(uri).map { attachment ->
-                            // A MIME the provider rejects as a file part (zip, binaries, ...): drop a
-                            // copy into the workspace and let the agent read it from disk. If the
-                            // copy fails, fall back to sending the attachment as before.
-                            val workspacePath =
-                                workspaceDir
-                                    ?.takeIf {
-                                        !com.yugahashimoto.andcode.runtime.local.AttachmentSupport.isModelSendable(
-                                            attachment.mime,
-                                        )
-                                    }?.let { directory ->
-                                        runCatching { importer.writeToWorkspace(attachment, directory) }
-                                            .getOrNull()
-                                            ?.let {
-                                                com.yugahashimoto.andcode.runtime.local.AttachmentSupport
-                                                    .guestWorkspacePath(it, runtimeWorkspaceRoot)
-                                            }
-                                    }
-                            if (workspacePath != null) {
-                                attachment.copy(url = "", workspacePath = workspacePath) to null
-                            } else {
-                                val preview =
-                                    if (com.yugahashimoto.andcode.runtime.local.VideoAttachmentHelper.isImageMime(
-                                            attachment.mime,
-                                        )
-                                    ) {
-                                        runCatching {
-                                            val base64 =
-                                                attachment.url.substringAfter("base64,", missingDelimiterValue = "")
-                                            if (base64.isEmpty()) return@runCatching null
-                                            val bytes =
-                                                android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
-                                            com.yugahashimoto.andcode.feature.chat.decodeSampledBitmap(
-                                                bytes,
-                                                com.yugahashimoto.andcode.feature.chat.COMPOSER_PREVIEW_MAX_DIMENSION,
-                                            )
-                                        }.getOrNull()
-                                    } else {
-                                        null
-                                    }
-                                attachment to preview
+                        val attachmentMime =
+                            context.contentResolver.getType(uri) ?: "application/octet-stream"
+                        val attachmentSendable =
+                            com.yugahashimoto.andcode.runtime.local.AttachmentSupport
+                                .isModelSendable(attachmentMime)
+                        val attachmentIsVideo =
+                            com.yugahashimoto.andcode.runtime.local.VideoAttachmentHelper
+                                .isVideoMime(attachmentMime)
+                        if (!attachmentSendable && !attachmentIsVideo) {
+                            // APK, zip, binary, ...: this must never become a model file part. Stream
+                            // it straight into the workspace (no base64, nothing held whole in RAM)
+                            // and let the agent read it from disk. This fixes both the provider
+                            // "file part media type ... functionality not supported" error and the
+                            // OutOfMemoryError from base64-encoding a large file.
+                            if (workspaceDir == null) {
+                                throw IllegalArgumentException("attachment_needs_workspace")
+                            }
+                            val file =
+                                importer.copyUriToWorkspace(uri, importer.displayName(uri), workspaceDir)
+                            val guestPath =
+                                com.yugahashimoto.andcode.runtime.local.AttachmentSupport
+                                    .guestWorkspacePath(file, runtimeWorkspaceRoot)
+                                    ?: throw IllegalStateException("Attachment escaped the workspace")
+                            listOf(
+                                com.yugahashimoto.andcode.core.api.PromptAttachment(
+                                    filename = file.name,
+                                    mime = attachmentMime,
+                                    url = "",
+                                    workspacePath = guestPath,
+                                ) to null,
+                            )
+                        } else {
+                            importer.importAll(uri).map { attachment ->
+                                // A MIME the provider rejects as a file part (zip, binaries, ...): drop
+                                // a copy into the workspace and let the agent read it from disk.
+                                val workspacePath =
+                                    workspaceDir
+                                        ?.takeIf {
+                                            !com.yugahashimoto.andcode.runtime.local.AttachmentSupport
+                                                .isModelSendable(
+                                                    attachment.mime,
+                                                )
+                                        }?.let { directory ->
+                                            runCatching { importer.writeToWorkspace(attachment, directory) }
+                                                .getOrNull()
+                                                ?.let {
+                                                    com.yugahashimoto.andcode.runtime.local.AttachmentSupport
+                                                        .guestWorkspacePath(it, runtimeWorkspaceRoot)
+                                                }
+                                        }
+                                if (workspacePath != null) {
+                                    attachment.copy(url = "", workspacePath = workspacePath) to null
+                                } else {
+                                    val preview =
+                                        if (com.yugahashimoto.andcode.runtime.local.VideoAttachmentHelper
+                                                .isImageMime(
+                                                    attachment.mime,
+                                                )
+                                        ) {
+                                            runCatching {
+                                                val base64 =
+                                                    attachment.url.substringAfter("base64,", missingDelimiterValue = "")
+                                                if (base64.isEmpty()) return@runCatching null
+                                                val bytes =
+                                                    android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                                                com.yugahashimoto.andcode.feature.chat.decodeSampledBitmap(
+                                                    bytes,
+                                                    com.yugahashimoto.andcode.feature.chat.COMPOSER_PREVIEW_MAX_DIMENSION,
+                                                )
+                                            }.getOrNull()
+                                        } else {
+                                            null
+                                        }
+                                    attachment to preview
+                                }
                             }
                         }
                     }
@@ -577,10 +617,16 @@ fun AndCodeApp(
                     }
                 }.onFailure { error ->
                     android.util.Log.w("AndCodeApp", "Failed to attach file", error)
+                    val message =
+                        if (error is IllegalArgumentException && error.message == "attachment_needs_workspace") {
+                            context.getString(R.string.attachment_needs_workspace)
+                        } else {
+                            context.getString(R.string.attachment_load_failed)
+                        }
                     android.widget.Toast.makeText(
                         context,
-                        context.getString(R.string.attachment_load_failed),
-                        android.widget.Toast.LENGTH_SHORT,
+                        message,
+                        android.widget.Toast.LENGTH_LONG,
                     ).show()
                 }
             }
