@@ -130,7 +130,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.pocketagent.andcode"
+        applicationId = "com.yugahashimoto.andcode"
         minSdk = 26
         targetSdk = 35
         versionCode = 66
